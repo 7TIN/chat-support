@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: server
+
+  datasource:
+    url: jdbc:postgresql://localhost:5433/customer_support
+    username: support_user
+    password: support_password
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
