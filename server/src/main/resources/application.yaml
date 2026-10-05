@@ -3,11 +3,17 @@ spring:
     name: server
 
   datasource:
-    url: jdbc:postgresql://localhost:5433/customer_support
+    url: jdbc:postgresql://localhost:5433/customer_support?TimeZone=UTC
     username: support_user
     password: support_password
+    hikari:
+      connection-init-sql: SET TIME ZONE 'UTC'
 
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
