@@ -9,6 +9,14 @@ export type Conversation = {
   updatedAt: string;
 };
 
+export type Agent = {
+  id: string;
+  name: string;
+  email: string;
+  status: "ONLINE" | "BUSY" | "OFFLINE";
+  createdAt: string;
+};
+
 export type Message = {
   id: string;
   conversationId: string;
@@ -44,5 +52,32 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId, sender, content }),
     }).then(json<Message>);
+  },
+  agents() {
+    return fetch(`${BASE}/api/agents`).then(json<Agent[]>);
+  },
+  createAgent(name: string, email: string) {
+    return fetch(`${BASE}/api/agents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email }),
+    }).then(json<Agent>);
+  },
+  setAgentStatus(id: string, status: Agent["status"]) {
+    return fetch(`${BASE}/api/agents/${id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    }).then(json<Agent>);
+  },
+  byAgent(agentId: string) {
+    return fetch(`${BASE}/api/conversations/agent/${agentId}`).then(
+      json<Conversation[]>
+    );
+  },
+  closeConversation(id: string) {
+    return fetch(`${BASE}/api/conversations/${id}/close`, {
+      method: "PATCH",
+    }).then(json<Conversation>);
   },
 };
