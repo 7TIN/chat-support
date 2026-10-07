@@ -9,6 +9,13 @@ export type Conversation = {
   updatedAt: string;
 };
 
+export type Customer = {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+};
+
 export type Agent = {
   id: string;
   name: string;
@@ -87,7 +94,7 @@ export const api = {
   },
   customerByEmail(email: string) {
     return fetch(`${BASE}/api/customers/by-email?email=${encodeURIComponent(email)}`).then(
-      json<{ id: string; name: string; email: string; createdAt: string }>
+      json<Customer>
     );
   },
   byCustomer(customerId: string) {
@@ -97,5 +104,8 @@ export const api = {
   },
   getConversation(id: string) {
     return fetch(`${BASE}/api/conversations/${id}`).then(json<Conversation>);
+  },
+  customer(id: string) {
+    return fetch(`${BASE}/api/customers/${id}`).then(json<Customer>);
   },
 };

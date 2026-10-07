@@ -274,12 +274,15 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
           </div>
           <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-4">
             {messages.map((m) => (
-              <div key={m.id}>
+              <div
+                key={m.id}
+                className={m.sender === "CUSTOMER" ? "flex flex-col items-end" : "flex flex-col items-start"}
+              >
                 <div
                   className={
                     m.sender === "CUSTOMER"
-                      ? "self-end rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground"
-                      : "self-start rounded-lg bg-muted px-3 py-2 text-sm"
+                      ? "max-w-[85%] rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground"
+                      : "max-w-[85%] rounded-lg bg-muted px-3 py-2 text-sm"
                   }
                 >
                   {m.content}

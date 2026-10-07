@@ -1,13 +1,18 @@
 package com.supportchat.server.service;
 
 import com.supportchat.server.beans.Agent;
+import com.supportchat.server.beans.Conversation;
 import com.supportchat.server.dto.AgentCreateRequest;
 import com.supportchat.server.dto.AgentResponse;
 import com.supportchat.server.enums.AgentStatus;
+import com.supportchat.server.enums.ConversationStatus;
 import com.supportchat.server.repository.AgentRepository;
+import com.supportchat.server.repository.ConversationRepository;
+import com.supportchat.server.websocket.ConversationUpdatedEvent;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,9 +20,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class AgentService {
 
     private final AgentRepository agents;
+    private final ConversationRepository conversations;
+    private final ApplicationEventPublisher events;
 
-    public AgentService(AgentRepository agents) {
+    public AgentService(
+            AgentRepository agents,
+            ConversationRepository conversations,
+            ApplicationEventPublisher events) {
         this.agents = agents;
+        this.conversations = conversations;
+        this.events = events;
     }
 
     @Transactional
@@ -48,6 +60,19 @@ public class AgentService {
         Agent agent = getOrThrow(id);
         agent.setStatus(status);
         return AgentResponse.from(agent);
+    }
+
+    @Transactional
+    public void delete(UUID id) {
+        Agent agent = getOrThrow(id);
+        for (Conversation conversation : conversations.findByAgentIdOrderByUpdatedAtDesc(id)) {
+            conversation.setAgent(null);
+            if (conversation.getStatus() == ConversationStatus.OPEN) {
+                conversation.setStatus(ConversationStatus.PENDING);
+            }
+            events.publishEvent(new ConversationUpdatedEvent(conversation.getId()));
+        }
+        agents.delete(agent);
     }
 
     private Agent getOrThrow(UUID id) {
