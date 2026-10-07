@@ -80,4 +80,22 @@ export const api = {
       method: "PATCH",
     }).then(json<Conversation>);
   },
+  reopenConversation(id: string) {
+    return fetch(`${BASE}/api/conversations/${id}/reopen`, {
+      method: "PATCH",
+    }).then(json<Conversation>);
+  },
+  customerByEmail(email: string) {
+    return fetch(`${BASE}/api/customers/by-email?email=${encodeURIComponent(email)}`).then(
+      json<{ id: string; name: string; email: string; createdAt: string }>
+    );
+  },
+  byCustomer(customerId: string) {
+    return fetch(`${BASE}/api/conversations/customer/${customerId}`).then(
+      json<Conversation[]>
+    );
+  },
+  getConversation(id: string) {
+    return fetch(`${BASE}/api/conversations/${id}`).then(json<Conversation>);
+  },
 };

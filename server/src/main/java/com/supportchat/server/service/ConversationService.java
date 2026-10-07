@@ -91,6 +91,18 @@ public class ConversationService {
     }
 
     @Transactional
+    public ConversationResponse reopen(UUID id) {
+        Conversation conversation = conversations.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Conversation not found: " + id));
+        if (conversation.getStatus() != ConversationStatus.CLOSED) {
+            throw new IllegalStateException("Only a closed conversation can be reopened");
+        }
+        conversation.setStatus(
+                conversation.getAgent() == null ? ConversationStatus.PENDING : ConversationStatus.OPEN);
+        return ConversationResponse.from(conversation);
+    }
+
+    @Transactional
     public ConversationResponse reassign(UUID id, UUID agentId) {
         Conversation conversation = conversations.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Conversation not found: " + id));

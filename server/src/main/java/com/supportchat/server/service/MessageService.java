@@ -4,6 +4,7 @@ import com.supportchat.server.beans.Conversation;
 import com.supportchat.server.beans.Message;
 import com.supportchat.server.dto.MessageCreateRequest;
 import com.supportchat.server.dto.MessageResponse;
+import com.supportchat.server.enums.ConversationStatus;
 import com.supportchat.server.repository.ConversationRepository;
 import com.supportchat.server.repository.MessageRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -27,6 +28,9 @@ public class MessageService {
     public MessageResponse send(MessageCreateRequest request) {
         Conversation conversation = conversations.findById(request.conversationId())
                 .orElseThrow(() -> new EntityNotFoundException("Conversation not found: " + request.conversationId()));
+        if (conversation.getStatus() == ConversationStatus.CLOSED) {
+            throw new IllegalStateException("Conversation is closed");
+        }
         Message saved = messages.save(new Message(conversation, request.sender(), request.content()));
         return MessageResponse.from(saved);
     }

@@ -50,6 +50,11 @@ public class ConversationController {
         return ResponseEntity.ok(conversationService.close(id));
     }
 
+    @PatchMapping("/{id}/reopen")
+    public ResponseEntity<ConversationResponse> reopen(@PathVariable UUID id) {
+        return ResponseEntity.ok(conversationService.reopen(id));
+    }
+
     @PatchMapping("/{id}/reassign/{agentId}")
     public ResponseEntity<ConversationResponse> reassign(@PathVariable UUID id, @PathVariable UUID agentId) {
         return ResponseEntity.ok(conversationService.reassign(id, agentId));

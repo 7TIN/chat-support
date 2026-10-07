@@ -40,4 +40,11 @@ public class CustomerService {
                 .orElseThrow(() -> new EntityNotFoundException("Customer not found: " + id));
         return CustomerResponse.from(customer);
     }
+
+    @Transactional(readOnly = true)
+    public CustomerResponse findByEmail(String email) {
+        return customers.findByEmail(email)
+                .map(CustomerResponse::from)
+                .orElseThrow(() -> new EntityNotFoundException("Customer not found: " + email));
+    }
 }

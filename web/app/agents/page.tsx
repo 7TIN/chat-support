@@ -85,6 +85,13 @@ export default function AgentsPage() {
     await refreshConvs(selectedAgent.id);
   }
 
+  async function reopenConv() {
+    if (!selectedConv || !selectedAgent) return;
+    const reopened = await api.reopenConversation(selectedConv.id);
+    setSelectedConv(reopened);
+    await refreshConvs(selectedAgent.id);
+  }
+
   async function addAgent() {
     if (!newName.trim() || !newEmail.trim()) return;
     await api.createAgent(newName.trim(), newEmail.trim());
@@ -182,6 +189,11 @@ export default function AgentsPage() {
             {selectedConv && selectedConv.status !== "CLOSED" && (
               <Button size="sm" variant="outline" onClick={closeConv}>
                 Close
+              </Button>
+            )}
+            {selectedConv && selectedConv.status === "CLOSED" && (
+              <Button size="sm" variant="outline" onClick={reopenConv}>
+                Reopen
               </Button>
             )}
           </div>
