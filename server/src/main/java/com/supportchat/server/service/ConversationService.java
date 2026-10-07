@@ -13,10 +13,12 @@ import com.supportchat.server.repository.AgentRepository;
 import com.supportchat.server.repository.ConversationRepository;
 import com.supportchat.server.repository.CustomerRepository;
 import com.supportchat.server.repository.MessageRepository;
+import com.supportchat.server.websocket.ConversationUpdatedEvent;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,16 +32,19 @@ public class ConversationService {
     private final CustomerRepository customers;
     private final AgentRepository agents;
     private final MessageRepository messages;
+    private final ApplicationEventPublisher events;
 
     public ConversationService(
             ConversationRepository conversations,
             CustomerRepository customers,
             AgentRepository agents,
-            MessageRepository messages) {
+            MessageRepository messages,
+            ApplicationEventPublisher events) {
         this.conversations = conversations;
         this.customers = customers;
         this.agents = agents;
         this.messages = messages;
+        this.events = events;
     }
 
     @Transactional
@@ -87,6 +92,7 @@ public class ConversationService {
         Conversation conversation = conversations.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Conversation not found: " + id));
         conversation.setStatus(ConversationStatus.CLOSED);
+        events.publishEvent(new ConversationUpdatedEvent(conversation.getId()));
         return ConversationResponse.from(conversation);
     }
 
@@ -99,6 +105,7 @@ public class ConversationService {
         }
         conversation.setStatus(
                 conversation.getAgent() == null ? ConversationStatus.PENDING : ConversationStatus.OPEN);
+        events.publishEvent(new ConversationUpdatedEvent(conversation.getId()));
         return ConversationResponse.from(conversation);
     }
 
@@ -114,6 +121,7 @@ public class ConversationService {
         } else if (agent.getStatus() == AgentStatus.ONLINE) {
             conversation.setStatus(ConversationStatus.OPEN);
         }
+        events.publishEvent(new ConversationUpdatedEvent(conversation.getId()));
         return ConversationResponse.from(conversation);
     }
 

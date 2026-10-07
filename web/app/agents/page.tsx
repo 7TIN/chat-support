@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { api, type Agent, type Conversation, type Message } from "@/lib/api";
+import { api, type Agent, type Conversation } from "@/lib/api";
+import { useConversationFeed } from "@/lib/useConversationFeed";
 
 const statusColor: Record<Agent["status"], string> = {
   ONLINE: "bg-emerald-500",
@@ -17,11 +18,20 @@ export default function AgentsPage() {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
+
+  const {
+    messages,
+    send: feedSend,
+    error: feedError,
+  } = useConversationFeed(selectedConv?.id ?? null, selectedConv !== null, (updated) => {
+    setSelectedConv(updated);
+    setConversations((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+  });
+  const shownError = error ?? feedError;
 
   const refreshAgents = useCallback(async () => {
     const list = await api.agents();
@@ -43,26 +53,12 @@ export default function AgentsPage() {
     if (selectedAgent) refreshConvs(selectedAgent.id).catch(() => {});
   }, [selectedAgent, refreshConvs]);
 
+  // Pick up newly assigned conversations without a reload.
   useEffect(() => {
-    if (!selectedConv) {
-      setMessages([]);
-      return;
-    }
-    let stop = false;
-    const load = () =>
-      api
-        .history(selectedConv.id)
-        .then((m) => {
-          if (!stop) setMessages(m);
-        })
-        .catch(() => {});
-    load();
-    const t = setInterval(load, 3000);
-    return () => {
-      stop = true;
-      clearInterval(t);
-    };
-  }, [selectedConv]);
+    if (!selectedAgent) return;
+    const t = setInterval(() => refreshConvs(selectedAgent.id).catch(() => {}), 15000);
+    return () => clearInterval(t);
+  }, [selectedAgent, refreshConvs]);
 
   async function changeStatus(status: Agent["status"]) {
     if (!selectedAgent) return;
@@ -75,8 +71,11 @@ export default function AgentsPage() {
     if (!selectedConv || !draft.trim()) return;
     const text = draft.trim();
     setDraft("");
-    await api.send(selectedConv.id, "AGENT", text);
-    setMessages(await api.history(selectedConv.id));
+    try {
+      await feedSend("AGENT", text);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not send reply.");
+    }
   }
 
   async function closeConv() {
@@ -109,7 +108,7 @@ export default function AgentsPage() {
         <span className="text-sm text-muted-foreground">Agent dashboard</span>
       </header>
 
-      {error && <p className="px-6 pt-4 text-sm text-destructive">{error}</p>}
+      {shownError && <p className="px-6 pt-4 text-sm text-destructive">{shownError}</p>}
 
       <div className="grid flex-1 gap-4 p-6 md:grid-cols-[240px_300px_1fr]">
         <section className="flex flex-col gap-2 rounded-xl border p-3">

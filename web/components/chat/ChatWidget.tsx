@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, X, Send, History, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { api, type Conversation, type Message } from "@/lib/api";
+import { api, type Conversation } from "@/lib/api";
+import { useConversationFeed } from "@/lib/useConversationFeed";
 
 type Customer = { id: string; name: string; email: string };
 type View = "identify" | "chat" | "history" | "newChat";
@@ -35,11 +36,20 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
   const [email, setEmail] = useState("");
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [conv, setConv] = useState<Conversation | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const {
+    messages,
+    send: feedSend,
+    error: feedError,
+  } = useConversationFeed(conv?.id ?? null, open && view === "chat", (updated) => {
+    setConv(updated);
+    setConvs((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+  });
+  const shownError = error ?? feedError;
 
   const activeConv = convs.find((c) => c.status === "OPEN" || c.status === "PENDING") ?? null;
 
@@ -74,29 +84,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
       });
   }, [open ]);
 
-  // Poll messages + status while a conversation is open.
-  useEffect(() => {
-    if (!open || !conv) return;
-    let stop = false;
-    const load = async () => {
-      try {
-        const [m, c] = await Promise.all([api.history(conv.id), api.getConversation(conv.id)]);
-        if (!stop) {
-          setMessages(m);
-          setConv(c);
-          setConvs((prev) => prev.map((x) => (x.id === c.id ? c : x)));
-        }
-      } catch {
-        /* keep old messages on transient errors */
-      }
-    };
-    load();
-    const t = setInterval(load, 3000);
-    return () => {
-      stop = true;
-      clearInterval(t);
-    };
-  }, [open, conv?.id]);
+  // Live messages + status arrive via useConversationFeed above.
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -140,8 +128,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
   async function openHistory(id: string) {
     setError(null);
     try {
-      const [m, c] = await Promise.all([api.history(id), api.getConversation(id)]);
-      setMessages(m);
+      const c = await api.getConversation(id);
       setConv(c);
       setView("chat");
     } catch (e) {
@@ -155,8 +142,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
     const text = draft.trim();
     setDraft("");
     try {
-      await api.send(conv.id, "CUSTOMER", text);
-      setMessages(await api.history(conv.id));
+      await feedSend("CUSTOMER", text);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send message.");
     }
@@ -215,7 +201,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
               placeholder="Hi, I need help with..."
             />
           </label>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {shownError && <p className="text-sm text-destructive">{shownError}</p>}
           <Button onClick={() => start(draft)} disabled={busy}>
             {busy ? "Starting..." : "Start chat"}
           </Button>
@@ -254,7 +240,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
               </Button>
             )}
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {shownError && <p className="text-sm text-destructive">{shownError}</p>}
         </div>
       )}
 
@@ -267,7 +253,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Describe your issue..."
           />
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {shownError && <p className="text-sm text-destructive">{shownError}</p>}
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setView("history")}>
               Back
@@ -305,7 +291,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
             ))}
             <div ref={bottomRef} />
           </div>
-          {error && <p className="px-4 text-sm text-destructive">{error}</p>}
+          {shownError && <p className="px-4 text-sm text-destructive">{shownError}</p>}
           {conv.status === "CLOSED" ? (
             <div className="border-t p-3">
               <Button className="w-full" onClick={() => setView("newChat")}>
