@@ -62,6 +62,9 @@ public class ConversationService {
                     Agent assigned = pickLeastLoadedOnlineAgent();
                     ConversationStatus status =
                             assigned == null ? ConversationStatus.PENDING : ConversationStatus.OPEN;
+                    if (assigned != null) {
+                        occupy(assigned);
+                    }
                     Conversation created = conversations.save(new Conversation(customer, assigned, status));
                     messages.save(new Message(created, SenderType.CUSTOMER, request.initialMessage()));
                     return ConversationResponse.from(created);
@@ -82,6 +85,37 @@ public class ConversationService {
     }
 
     @Transactional(readOnly = true)
+    public List<ConversationResponse> findAll() {
+        return conversations.findAllByOrderByUpdatedAtDesc().stream()
+                .map(ConversationResponse::from).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ConversationResponse> findPending() {
+        return conversations.findByStatusOrderByCreatedAtAsc(ConversationStatus.PENDING).stream()
+                .map(ConversationResponse::from).toList();
+    }
+
+    /**
+     * Assigns waiting conversations (oldest first) to the least-loaded
+     * online agent. Called when agent availability increases.
+     */
+    @Transactional
+    public void assignPending() {
+        for (Conversation pending
+                : conversations.findByStatusOrderByCreatedAtAsc(ConversationStatus.PENDING)) {
+            Agent agent = pickLeastLoadedOnlineAgent();
+            if (agent == null) {
+                return;
+            }
+            pending.setAgent(agent);
+            pending.setStatus(ConversationStatus.OPEN);
+            occupy(agent);
+            events.publishEvent(new ConversationUpdatedEvent(pending.getId()));
+        }
+    }
+
+    @Transactional(readOnly = true)
     public List<ConversationResponse> findByAgent(UUID agentId) {
         return conversations.findByAgentIdOrderByUpdatedAtDesc(agentId).stream()
                 .map(ConversationResponse::from).toList();
@@ -92,6 +126,7 @@ public class ConversationService {
         Conversation conversation = conversations.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Conversation not found: " + id));
         conversation.setStatus(ConversationStatus.CLOSED);
+        releaseIfFree(conversation.getAgent());
         events.publishEvent(new ConversationUpdatedEvent(conversation.getId()));
         return ConversationResponse.from(conversation);
     }
@@ -121,8 +156,30 @@ public class ConversationService {
         } else if (agent.getStatus() == AgentStatus.ONLINE) {
             conversation.setStatus(ConversationStatus.OPEN);
         }
+        occupy(agent);
         events.publishEvent(new ConversationUpdatedEvent(conversation.getId()));
         return ConversationResponse.from(conversation);
+    }
+
+    /**
+     * An agent holding an open conversation is busy: flip ONLINE agents to
+     * BUSY so auto-assign skips them. Manual claims still allowed.
+     */
+    private void occupy(Agent agent) {
+        if (agent.getStatus() == AgentStatus.ONLINE) {
+            agent.setStatus(AgentStatus.BUSY);
+        }
+    }
+
+    /**
+     * Frees an agent whose last open conversation just closed.
+     */
+    private void releaseIfFree(Agent agent) {
+        if (agent != null
+                && agent.getStatus() == AgentStatus.BUSY
+                && conversations.countByAgentIdAndStatus(agent.getId(), ConversationStatus.OPEN) == 0) {
+            agent.setStatus(AgentStatus.ONLINE);
+        }
     }
 
     private Agent pickLeastLoadedOnlineAgent() {

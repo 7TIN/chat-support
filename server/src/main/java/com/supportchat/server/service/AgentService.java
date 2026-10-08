@@ -21,14 +21,17 @@ public class AgentService {
 
     private final AgentRepository agents;
     private final ConversationRepository conversations;
+    private final ConversationService conversationService;
     private final ApplicationEventPublisher events;
 
     public AgentService(
             AgentRepository agents,
             ConversationRepository conversations,
+            ConversationService conversationService,
             ApplicationEventPublisher events) {
         this.agents = agents;
         this.conversations = conversations;
+        this.conversationService = conversationService;
         this.events = events;
     }
 
@@ -37,7 +40,10 @@ public class AgentService {
         if (agents.existsByEmail(request.email())) {
             throw new IllegalArgumentException("Agent already exists: " + request.email());
         }
-        return AgentResponse.from(agents.save(new Agent(request.name(), request.email())));
+        AgentResponse created =
+                AgentResponse.from(agents.save(new Agent(request.name(), request.email())));
+        conversationService.assignPending();
+        return created;
     }
 
     @Transactional(readOnly = true)
@@ -59,7 +65,11 @@ public class AgentService {
     public AgentResponse updateStatus(UUID id, AgentStatus status) {
         Agent agent = getOrThrow(id);
         agent.setStatus(status);
-        return AgentResponse.from(agent);
+        AgentResponse response = AgentResponse.from(agent);
+        if (status == AgentStatus.ONLINE) {
+            conversationService.assignPending();
+        }
+        return response;
     }
 
     @Transactional
@@ -73,6 +83,7 @@ public class AgentService {
             events.publishEvent(new ConversationUpdatedEvent(conversation.getId()));
         }
         agents.delete(agent);
+        conversationService.assignPending();
     }
 
     private Agent getOrThrow(UUID id) {

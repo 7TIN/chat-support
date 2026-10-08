@@ -41,6 +41,7 @@ export default function AgentsPage() {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [convMeta, setConvMeta] = useState<Record<string, { name: string; preview: string }>>({});
+  const [allConvs, setAllConvs] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [customerInfo, setCustomerInfo] = useState<Customer | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,10 +55,7 @@ export default function AgentsPage() {
     setSelectedAgent((prev) => list.find((a) => a.id === prev?.id) ?? null);
   }, []);
 
-  const refreshConvs = useCallback(async (agentId: string) => {
-    const list = await api.byAgent(agentId);
-    setConversations(list);
-    setSelectedConv((prev) => list.find((c) => c.id === prev?.id) ?? null);
+  const enrichMeta = useCallback(async (list: Conversation[]) => {
     const entries = await Promise.all(
       list.map(async (c) => {
         try {
@@ -80,19 +78,41 @@ export default function AgentsPage() {
         }
       })
     );
-    setConvMeta(Object.fromEntries(entries));
+    return Object.fromEntries(entries) as Record<string, { name: string; preview: string }>;
   }, []);
+
+  const refreshConvs = useCallback(
+    async (agentId: string) => {
+      const list = await api.byAgent(agentId);
+      setConversations(list);
+      setSelectedConv((prev) => list.find((c) => c.id === prev?.id) ?? null);
+      const meta = await enrichMeta(list);
+      setConvMeta((prev) => ({ ...prev, ...meta }));
+    },
+    [enrichMeta]
+  );
+
+  const refreshAll = useCallback(async () => {
+    const list = await api.allConversations();
+    setAllConvs(list);
+    const meta = await enrichMeta(list);
+    setConvMeta((prev) => ({ ...prev, ...meta }));
+  }, [enrichMeta]);
 
   useEffect(() => {
     refreshAgents().catch((e) => setError(e instanceof Error ? e.message : "Load failed"));
-  }, [refreshAgents]);
+    refreshAll().catch(() => {});
+  }, [refreshAgents, refreshAll]);
 
-  // Pick up newly assigned conversations without a reload.
+  // Pick up new/changed conversations without a reload.
   useEffect(() => {
-    if (!selectedAgent) return;
-    const t = setInterval(() => refreshConvs(selectedAgent.id).catch(() => {}), 15000);
+    const t = setInterval(() => {
+      refreshAgents().catch(() => {});
+      refreshAll().catch(() => {});
+      if (selectedAgent) refreshConvs(selectedAgent.id).catch(() => {});
+    }, 15000);
     return () => clearInterval(t);
-  }, [selectedAgent, refreshConvs]);
+  }, [selectedAgent, refreshAgents, refreshConvs, refreshAll]);
 
   useEffect(() => {
     if (!selectedConv) {
@@ -130,6 +150,17 @@ export default function AgentsPage() {
     const updated = await api.setAgentStatus(selectedAgent.id, status);
     setAgents((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
     setSelectedAgent(updated);
+    await Promise.all([refreshConvs(updated.id), refreshAll()]);
+  }
+
+  async function join(id: string) {
+    if (!selectedAgent) {
+      setError("Select an agent card first, then join a conversation.");
+      return;
+    }
+    setError(null);
+    await api.reassign(id, selectedAgent.id);
+    await Promise.all([refreshConvs(selectedAgent.id), refreshAll()]);
   }
 
   async function addAgent() {
@@ -260,6 +291,55 @@ export default function AgentsPage() {
           </section>
         )}
 
+        <section>
+          <h2 className="mb-3 text-sm font-semibold">
+            All conversations ({allConvs.length})
+          </h2>
+          {allConvs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No conversations yet.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {allConvs.map((c) => {
+                const meta = convMeta[c.id];
+                const owner = c.agentId ? agents.find((a) => a.id === c.agentId) : null;
+                const mine = selectedConv?.id === c.id;
+                const joined = selectedAgent?.id === c.agentId;
+                return (
+                  <div
+                    key={c.id}
+                    className={`flex flex-col gap-1 rounded-xl border p-3 ${
+                      mine ? "ring-2 ring-primary" : ""
+                    }`}
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium">
+                        {meta?.name ?? "Loading..."}
+                      </span>
+                      <StatusBadge status={c.status} />
+                    </span>
+                    <span className="truncate text-sm text-muted-foreground">
+                      {meta?.preview ?? "Loading..."}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {owner ? `With ${owner.name}` : "Unassigned"} · {fmt(c.updatedAt)}
+                    </span>
+                    <span className="mt-1 flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setSelectedConv(c)}>
+                        Open
+                      </Button>
+                      {!joined && c.status !== "CLOSED" && (
+                        <Button size="sm" onClick={() => join(c.id)}>
+                          Join
+                        </Button>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
         {selectedConv && (
           <AgentChatPopup
             key={selectedConv.id}
@@ -269,8 +349,10 @@ export default function AgentsPage() {
             onStatusChange={(updated) => {
               setSelectedConv(updated);
               setConversations((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+              setAllConvs((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
             }}
             onRefreshList={() => {
+              refreshAll().catch(() => {});
               if (selectedAgent) refreshConvs(selectedAgent.id).catch(() => {});
             }}
           />

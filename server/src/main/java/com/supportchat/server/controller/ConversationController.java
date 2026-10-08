@@ -40,9 +40,19 @@ public class ConversationController {
         return ResponseEntity.ok(conversationService.findByCustomer(customerId));
     }
 
+    @GetMapping
+    public ResponseEntity<List<ConversationResponse>> findAll() {
+        return ResponseEntity.ok(conversationService.findAll());
+    }
+
     @GetMapping("/agent/{agentId}")
     public ResponseEntity<List<ConversationResponse>> findByAgent(@PathVariable UUID agentId) {
         return ResponseEntity.ok(conversationService.findByAgent(agentId));
+    }
+
+    @GetMapping("/pending")
+    public ResponseEntity<List<ConversationResponse>> findPending() {
+        return ResponseEntity.ok(conversationService.findPending());
     }
 
     @PatchMapping("/{id}/close")

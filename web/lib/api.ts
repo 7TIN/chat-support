@@ -82,6 +82,9 @@ export const api = {
       json<Conversation[]>
     );
   },
+  allConversations() {
+    return fetch(`${BASE}/api/conversations`).then(json<Conversation[]>);
+  },
   closeConversation(id: string) {
     return fetch(`${BASE}/api/conversations/${id}/close`, {
       method: "PATCH",
@@ -101,6 +104,14 @@ export const api = {
     return fetch(`${BASE}/api/conversations/customer/${customerId}`).then(
       json<Conversation[]>
     );
+  },
+  pending() {
+    return fetch(`${BASE}/api/conversations/pending`).then(json<Conversation[]>);
+  },
+  reassign(conversationId: string, agentId: string) {
+    return fetch(`${BASE}/api/conversations/${conversationId}/reassign/${agentId}`, {
+      method: "PATCH",
+    }).then(json<Conversation>);
   },
   getConversation(id: string) {
     return fetch(`${BASE}/api/conversations/${id}`).then(json<Conversation>);
