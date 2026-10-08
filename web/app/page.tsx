@@ -12,7 +12,7 @@ export default function Home() {
   return (
     <div className="flex min-h-full flex-1 flex-col bg-zinc-50 dark:bg-black">
       <header className="flex w-full items-center justify-between border-b bg-white px-6 py-4 dark:bg-black">
-        <div className="text-lg font-semibold">Acme Support</div>
+        <div className="text-lg font-semibold">Support Chat</div>
         <div className="flex items-center gap-2">
           <Link href="/agents" className={buttonVariants({ variant: "outline" })}>
             Agent dashboard

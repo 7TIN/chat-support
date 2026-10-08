@@ -181,7 +181,7 @@ export default function AgentsPage() {
     <div className="flex min-h-full flex-1 flex-col">
       <header className="flex items-center justify-between border-b px-6 py-4">
         <Link href="/" className="text-lg font-semibold">
-          Acme Support
+          Support Chat
         </Link>
         <span className="text-sm text-muted-foreground">Agent dashboard</span>
       </header>
