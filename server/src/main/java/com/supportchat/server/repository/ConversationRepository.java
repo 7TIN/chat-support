@@ -21,6 +21,9 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
 
     List<Conversation> findByStatusOrderByCreatedAtAsc(ConversationStatus status);
 
+    List<Conversation> findByAgentIdIsNullAndStatusInOrderByCreatedAtAsc(
+            Collection<ConversationStatus> statuses);
+
     List<Conversation> findAllByOrderByUpdatedAtDesc();
 
     long countByAgentIdAndStatus(UUID agentId, ConversationStatus status);

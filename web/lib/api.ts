@@ -82,8 +82,10 @@ export const api = {
       json<Conversation[]>
     );
   },
-  allConversations() {
-    return fetch(`${BASE}/api/conversations`).then(json<Conversation[]>);
+  agentByEmail(email: string) {
+    return fetch(`${BASE}/api/agents/by-email?email=${encodeURIComponent(email)}`).then(
+      json<Agent>
+    );
   },
   closeConversation(id: string) {
     return fetch(`${BASE}/api/conversations/${id}/close`, {
@@ -106,7 +108,7 @@ export const api = {
     );
   },
   pending() {
-    return fetch(`${BASE}/api/conversations/pending`).then(json<Conversation[]>);
+    return fetch(`${BASE}/api/conversations/unassigned`).then(json<Conversation[]>);
   },
   reassign(conversationId: string, agentId: string) {
     return fetch(`${BASE}/api/conversations/${conversationId}/reassign/${agentId}`, {

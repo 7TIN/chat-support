@@ -2,16 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { CircleUserRound, Plus, X } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, type Agent, type Conversation, type Customer } from "@/lib/api";
 import { AgentChatPopup } from "@/components/chat/AgentChatPopup";
 
-const statusColor: Record<Agent["status"], string> = {
-  ONLINE: "bg-emerald-500",
-  BUSY: "bg-amber-500",
-  OFFLINE: "bg-zinc-400",
-};
+const SESSION_KEY = "support-agent";
 
 function fmt(iso: string) {
   return new Date(iso).toLocaleString(undefined, {
@@ -36,24 +32,28 @@ function StatusBadge({ status }: { status: Conversation["status"] }) {
   );
 }
 
+function loadSession(): Agent | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as Agent) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function AgentsPage() {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [agent, setAgent] = useState<Agent | null>(null);
+  const [email, setEmail] = useState("");
+  const [mode, setMode] = useState<"login" | "create">("login");
+  const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [busy, setBusy] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [convMeta, setConvMeta] = useState<Record<string, { name: string; preview: string }>>({});
-  const [allConvs, setAllConvs] = useState<Conversation[]>([]);
+  const [unassigned, setUnassigned] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [customerInfo, setCustomerInfo] = useState<Customer | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-
-  const refreshAgents = useCallback(async () => {
-    const list = await api.agents();
-    setAgents(list);
-    setSelectedAgent((prev) => list.find((a) => a.id === prev?.id) ?? null);
-  }, []);
 
   const enrichMeta = useCallback(async (list: Conversation[]) => {
     const entries = await Promise.all(
@@ -81,7 +81,7 @@ export default function AgentsPage() {
     return Object.fromEntries(entries) as Record<string, { name: string; preview: string }>;
   }, []);
 
-  const refreshConvs = useCallback(
+  const refreshMine = useCallback(
     async (agentId: string) => {
       const list = await api.byAgent(agentId);
       setConversations(list);
@@ -92,27 +92,30 @@ export default function AgentsPage() {
     [enrichMeta]
   );
 
-  const refreshAll = useCallback(async () => {
-    const list = await api.allConversations();
-    setAllConvs(list);
+  const refreshUnassigned = useCallback(async () => {
+    const list = await api.pending();
+    setUnassigned(list);
     const meta = await enrichMeta(list);
     setConvMeta((prev) => ({ ...prev, ...meta }));
   }, [enrichMeta]);
 
   useEffect(() => {
-    refreshAgents().catch((e) => setError(e instanceof Error ? e.message : "Load failed"));
-    refreshAll().catch(() => {});
-  }, [refreshAgents, refreshAll]);
+    const session = loadSession();
+    if (session) {
+      setAgent(session);
+      refreshMine(session.id).catch(() => {});
+    }
+    refreshUnassigned().catch(() => {});
+  }, [refreshMine, refreshUnassigned]);
 
-  // Pick up new/changed conversations without a reload.
   useEffect(() => {
+    if (!agent) return;
     const t = setInterval(() => {
-      refreshAgents().catch(() => {});
-      refreshAll().catch(() => {});
-      if (selectedAgent) refreshConvs(selectedAgent.id).catch(() => {});
+      refreshMine(agent.id).catch(() => {});
+      refreshUnassigned().catch(() => {});
     }, 15000);
     return () => clearInterval(t);
-  }, [selectedAgent, refreshAgents, refreshConvs, refreshAll]);
+  }, [agent, refreshMine, refreshUnassigned]);
 
   useEffect(() => {
     if (!selectedConv) {
@@ -133,48 +136,67 @@ export default function AgentsPage() {
     };
   }, [selectedConv]);
 
-  function selectAgent(agent: Agent) {
-    if (selectedAgent?.id === agent.id) {
-      setSelectedAgent(null);
-      setConversations([]);
+  async function signIn() {
+    if (!email.trim()) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const found = await api.agentByEmail(email.trim());
+      setAgent(found);
+      localStorage.setItem(SESSION_KEY, JSON.stringify(found));
       setSelectedConv(null);
-      return;
+      await refreshMine(found.id);
+    } catch {
+      setError("No agent found with that email. Create an account below.");
+    } finally {
+      setBusy(false);
     }
-    setSelectedAgent(agent);
+  }
+
+  async function createAccount() {
+    if (!newName.trim() || !newEmail.trim()) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const created = await api.createAgent(newName.trim(), newEmail.trim());
+      setAgent(created);
+      localStorage.setItem(SESSION_KEY, JSON.stringify(created));
+      setNewName("");
+      setNewEmail("");
+      setMode("login");
+      setEmail(newEmail.trim());
+      setSelectedConv(null);
+      await refreshMine(created.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create account.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem(SESSION_KEY);
+    setAgent(null);
+    setConversations([]);
     setSelectedConv(null);
-    refreshConvs(agent.id).catch(() => {});
+    setEmail("");
+    setError(null);
   }
 
   async function changeStatus(status: Agent["status"]) {
-    if (!selectedAgent) return;
-    const updated = await api.setAgentStatus(selectedAgent.id, status);
-    setAgents((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-    setSelectedAgent(updated);
-    await Promise.all([refreshConvs(updated.id), refreshAll()]);
+    if (!agent) return;
+    const updated = await api.setAgentStatus(agent.id, status);
+    setAgent(updated);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
+    await Promise.all([refreshMine(updated.id), refreshUnassigned()]);
   }
 
   async function join(id: string) {
-    if (!selectedAgent) {
-      setError("Select an agent card first, then join a conversation.");
-      return;
-    }
+    if (!agent) return;
     setError(null);
-    await api.reassign(id, selectedAgent.id);
-    await Promise.all([refreshConvs(selectedAgent.id), refreshAll()]);
-  }
-
-  async function addAgent() {
-    if (!newName.trim() || !newEmail.trim()) return;
-    setError(null);
-    try {
-      await api.createAgent(newName.trim(), newEmail.trim());
-      setNewName("");
-      setNewEmail("");
-      setShowAddForm(false);
-      await refreshAgents();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not add agent.");
-    }
+    const joined = await api.reassign(id, agent.id);
+    await Promise.all([refreshMine(agent.id), refreshUnassigned()]);
+    setSelectedConv(joined);
   }
 
   return (
@@ -183,82 +205,102 @@ export default function AgentsPage() {
         <Link href="/" className="text-lg font-semibold">
           Support Chat
         </Link>
-        <span className="text-sm text-muted-foreground">Agent dashboard</span>
+        {agent ? (
+          <div className="flex items-center gap-2">
+            <span className="hidden text-sm text-muted-foreground sm:block">{agent.name}</span>
+            <select
+              className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+              value={agent.status}
+              onChange={(e) => changeStatus(e.target.value as Agent["status"])}
+              aria-label="Availability"
+            >
+              <option value="ONLINE">ONLINE</option>
+              <option value="BUSY">BUSY</option>
+              <option value="OFFLINE">OFFLINE</option>
+            </select>
+            <Button size="sm" variant="outline" onClick={logout}>
+              <LogOut /> Logout
+            </Button>
+          </div>
+        ) : (
+          <span className="text-sm text-muted-foreground">Agent sign in</span>
+        )}
       </header>
 
       {error && <p className="px-6 pt-4 text-sm text-destructive">{error}</p>}
 
-      <div className="flex flex-1 flex-col gap-6 p-6">
-        <section>
-          <h2 className="mb-3 text-sm font-semibold">Agents</h2>
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-            {agents.map((a) => (
-              <button
-                key={a.id}
-                onClick={() => selectAgent(a)}
-                className={`flex flex-col items-center justify-center gap-1 rounded-xl border p-3 text-center hover:bg-muted ${
-                  selectedAgent?.id === a.id ? "ring-2 ring-primary" : ""
-                }`}
-              >
-                <span className="relative">
-                  <CircleUserRound className="size-10 text-muted-foreground" strokeWidth={1} />
-                  <span
-                    className={`absolute bottom-1 right-1 size-3 rounded-full border-2 border-background ${statusColor[a.status]}`}
-                  />
-                </span>
-                <span className="w-full">
-                  <span className="block truncate text-sm font-medium">{a.name}</span>
-                  <span className="block truncate text-[11px] text-muted-foreground">{a.email}</span>
-                  <span className="mt-0.5 block text-[11px] text-muted-foreground">{a.status}</span>
-                </span>
-              </button>
-            ))}
-            <button
-              onClick={() => setShowAddForm((v) => !v)}
-              className="flex min-h-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed p-3 text-muted-foreground hover:bg-muted"
-            >
-              {showAddForm ? <X className="size-6" /> : <Plus className="size-6" />}
-              <span className="text-xs font-medium">Add agent</span>
-            </button>
-          </div>
-          {showAddForm && (
-            <div className="mt-4 flex max-w-md flex-col gap-2 rounded-xl border p-4">
-              <input
-                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none"
-                placeholder="Agent name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-              />
-              <input
-                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none"
-                placeholder="agent@example.com"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-              />
-              <Button size="sm" onClick={addAgent}>
-                Save agent
+      {!agent ? (
+        <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-3 p-6">
+          {mode === "login" ? (
+            <>
+              <h1 className="text-xl font-semibold">Agent sign in</h1>
+              <label className="grid gap-1 text-sm">
+                Work email
+                <input
+                  className="h-9 rounded-md border border-input bg-transparent px-3 outline-none focus-visible:border-ring"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") signIn();
+                  }}
+                  placeholder="agent@example.com"
+                />
+              </label>
+              <Button onClick={signIn} disabled={busy}>
+                {busy ? "Signing in..." : "Continue"}
               </Button>
-            </div>
-          )}
-        </section>
-
-        {selectedAgent && (
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">
-                {selectedAgent.name}&apos;s conversations ({conversations.length})
-              </h2>
-              <select
-                className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
-                value={selectedAgent.status}
-                onChange={(e) => changeStatus(e.target.value as Agent["status"])}
-                aria-label="Agent status"
+              <button
+                className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+                onClick={() => {
+                  setError(null);
+                  setMode("create");
+                }}
               >
-                <option value="ONLINE">ONLINE</option>
-                <option value="BUSY">BUSY</option>
-                <option value="OFFLINE">OFFLINE</option>
-              </select>
-            </div>
+                New here? Create agent account
+              </button>
+            </>
+          ) : (
+            <>
+              <h1 className="text-xl font-semibold">Create agent account</h1>
+              <label className="grid gap-1 text-sm">
+                Full name
+                <input
+                  className="h-9 rounded-md border border-input bg-transparent px-3 outline-none focus-visible:border-ring"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Jane Smith"
+                />
+              </label>
+              <label className="grid gap-1 text-sm">
+                Work email
+                <input
+                  className="h-9 rounded-md border border-input bg-transparent px-3 outline-none focus-visible:border-ring"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="agent@example.com"
+                />
+              </label>
+              <Button onClick={createAccount} disabled={busy}>
+                {busy ? "Creating..." : "Create account"}
+              </Button>
+              <button
+                className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+                onClick={() => {
+                  setError(null);
+                  setMode("login");
+                }}
+              >
+                Already have an account? Log in
+              </button>
+            </>
+          )}
+        </main>
+      ) : (
+        <div className="flex flex-1 flex-col gap-6 p-6">
+          <section>
+            <h2 className="mb-3 text-sm font-semibold">
+              My conversations ({conversations.length})
+            </h2>
             {conversations.length === 0 ? (
               <p className="text-sm text-muted-foreground">No conversations assigned.</p>
             ) : (
@@ -289,75 +331,69 @@ export default function AgentsPage() {
               </div>
             )}
           </section>
-        )}
 
-        <section>
-          <h2 className="mb-3 text-sm font-semibold">
-            All conversations ({allConvs.length})
-          </h2>
-          {allConvs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No conversations yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {allConvs.map((c) => {
-                const meta = convMeta[c.id];
-                const owner = c.agentId ? agents.find((a) => a.id === c.agentId) : null;
-                const mine = selectedConv?.id === c.id;
-                const joined = selectedAgent?.id === c.agentId;
-                return (
-                  <div
-                    key={c.id}
-                    className={`flex flex-col gap-1 rounded-xl border p-3 ${
-                      mine ? "ring-2 ring-primary" : ""
-                    }`}
-                  >
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium">
-                        {meta?.name ?? "Loading..."}
+          <section>
+            <h2 className="mb-3 text-sm font-semibold">
+              Waiting for an agent ({unassigned.length})
+            </h2>
+            {unassigned.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No unassigned conversations.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {unassigned.map((c) => {
+                  const meta = convMeta[c.id];
+                  const mine = selectedConv?.id === c.id;
+                  return (
+                    <div
+                      key={c.id}
+                      className={`flex flex-col gap-1 rounded-xl border p-3 ${
+                        mine ? "ring-2 ring-primary" : ""
+                      }`}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-medium">
+                          {meta?.name ?? "Loading..."}
+                        </span>
+                        <StatusBadge status={c.status} />
                       </span>
-                      <StatusBadge status={c.status} />
-                    </span>
-                    <span className="truncate text-sm text-muted-foreground">
-                      {meta?.preview ?? "Loading..."}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {owner ? `With ${owner.name}` : "Unassigned"} · {fmt(c.updatedAt)}
-                    </span>
-                    <span className="mt-1 flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => setSelectedConv(c)}>
-                        Open
-                      </Button>
-                      {!joined && c.status !== "CLOSED" && (
+                      <span className="truncate text-sm text-muted-foreground">
+                        {meta?.preview ?? "Loading..."}
+                      </span>
+                      <span className="text-xs text-muted-foreground">Unassigned · {fmt(c.updatedAt)}</span>
+                      <span className="mt-1 flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setSelectedConv(c)}>
+                          Open
+                        </Button>
                         <Button size="sm" onClick={() => join(c.id)}>
                           Join
                         </Button>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
 
-        {selectedConv && (
-          <AgentChatPopup
-            key={selectedConv.id}
-            conversation={selectedConv}
-            customer={customerInfo}
-            onClose={() => setSelectedConv(null)}
-            onStatusChange={(updated) => {
-              setSelectedConv(updated);
-              setConversations((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-              setAllConvs((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-            }}
-            onRefreshList={() => {
-              refreshAll().catch(() => {});
-              if (selectedAgent) refreshConvs(selectedAgent.id).catch(() => {});
-            }}
-          />
-        )}
-      </div>
+      {selectedConv && (
+        <AgentChatPopup
+          key={selectedConv.id}
+          conversation={selectedConv}
+          customer={customerInfo}
+          onClose={() => setSelectedConv(null)}
+          onStatusChange={(updated) => {
+            setSelectedConv(updated);
+            setConversations((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+            setUnassigned((prev) => prev.filter((c) => c.id !== updated.id));
+          }}
+          onRefreshList={() => {
+            refreshUnassigned().catch(() => {});
+            if (agent) refreshMine(agent.id).catch(() => {});
+          }}
+        />
+      )}
     </div>
   );
 }

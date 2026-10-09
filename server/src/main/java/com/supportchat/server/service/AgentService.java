@@ -52,6 +52,13 @@ public class AgentService {
     }
 
     @Transactional(readOnly = true)
+    public AgentResponse findByEmail(String email) {
+        return agents.findByEmail(email)
+                .map(AgentResponse::from)
+                .orElseThrow(() -> new EntityNotFoundException("Agent not found: " + email));
+    }
+
+    @Transactional(readOnly = true)
     public List<AgentResponse> findAll() {
         return agents.findAll().stream().map(AgentResponse::from).toList();
     }

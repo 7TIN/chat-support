@@ -50,9 +50,9 @@ public class ConversationController {
         return ResponseEntity.ok(conversationService.findByAgent(agentId));
     }
 
-    @GetMapping("/pending")
-    public ResponseEntity<List<ConversationResponse>> findPending() {
-        return ResponseEntity.ok(conversationService.findPending());
+    @GetMapping("/unassigned")
+    public ResponseEntity<List<ConversationResponse>> findUnassigned() {
+        return ResponseEntity.ok(conversationService.findUnassigned());
     }
 
     @PatchMapping("/{id}/close")

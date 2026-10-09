@@ -59,7 +59,7 @@ public class ConversationService {
                     return ConversationResponse.from(existing);
                 })
                 .orElseGet(() -> {
-                    Agent assigned = pickLeastLoadedOnlineAgent();
+                    Agent assigned = pickLeastLoadedOnlineAgent(); 
                     ConversationStatus status =
                             assigned == null ? ConversationStatus.PENDING : ConversationStatus.OPEN;
                     if (assigned != null) {
@@ -91,8 +91,10 @@ public class ConversationService {
     }
 
     @Transactional(readOnly = true)
-    public List<ConversationResponse> findPending() {
-        return conversations.findByStatusOrderByCreatedAtAsc(ConversationStatus.PENDING).stream()
+    public List<ConversationResponse> findUnassigned() {
+        return conversations
+                .findByAgentIdIsNullAndStatusInOrderByCreatedAtAsc(ACTIVE)
+                .stream()
                 .map(ConversationResponse::from).toList();
     }
 

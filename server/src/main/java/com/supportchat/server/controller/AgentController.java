@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -46,6 +47,11 @@ public class AgentController {
     @GetMapping("/{id}")
     public ResponseEntity<AgentResponse> findById(@PathVariable UUID id) {
         return ResponseEntity.ok(agentService.findById(id));
+    }
+
+    @GetMapping("/by-email")
+    public ResponseEntity<AgentResponse> findByEmail(@RequestParam String email) {
+        return ResponseEntity.ok(agentService.findByEmail(email));
     }
 
     @PatchMapping("/{id}/status")
