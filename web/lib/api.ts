@@ -24,6 +24,16 @@ export type Agent = {
   createdAt: string;
 };
 
+export type AssignmentInfo = {
+  tier: "CONTINUED" | "ONLINE" | "BUSY" | "QUEUED";
+  agentName: string | null;
+};
+
+export type ConversationStartResponse = {
+  conversation: Conversation;
+  assignment: AssignmentInfo;
+};
+
 export type Message = {
   id: string;
   conversationId: string;
@@ -46,7 +56,7 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ customerName, customerEmail, initialMessage }),
-    }).then(json<Conversation>);
+    }).then(json<ConversationStartResponse>);
   },
   history(conversationId: string) {
     return fetch(`${BASE}/api/conversations/${conversationId}/messages`).then(

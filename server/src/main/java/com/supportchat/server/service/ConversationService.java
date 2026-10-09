@@ -4,8 +4,10 @@ import com.supportchat.server.beans.Agent;
 import com.supportchat.server.beans.Conversation;
 import com.supportchat.server.beans.Customer;
 import com.supportchat.server.beans.Message;
+import com.supportchat.server.dto.AssignmentInfo;
 import com.supportchat.server.dto.ConversationResponse;
 import com.supportchat.server.dto.ConversationStartRequest;
+import com.supportchat.server.dto.ConversationStartResponse;
 import com.supportchat.server.enums.AgentStatus;
 import com.supportchat.server.enums.ConversationStatus;
 import com.supportchat.server.enums.SenderType;
@@ -16,6 +18,7 @@ import com.supportchat.server.repository.MessageRepository;
 import com.supportchat.server.websocket.ConversationUpdatedEvent;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
@@ -32,6 +35,7 @@ public class ConversationService {
     private final CustomerRepository customers;
     private final AgentRepository agents;
     private final MessageRepository messages;
+    private final AgentQueueService agentQueue;
     private final ApplicationEventPublisher events;
 
     public ConversationService(
@@ -39,36 +43,48 @@ public class ConversationService {
             CustomerRepository customers,
             AgentRepository agents,
             MessageRepository messages,
+            AgentQueueService agentQueue,
             ApplicationEventPublisher events) {
         this.conversations = conversations;
         this.customers = customers;
         this.agents = agents;
         this.messages = messages;
+        this.agentQueue = agentQueue;
         this.events = events;
     }
 
     @Transactional
-    public ConversationResponse start(ConversationStartRequest request) {
+    public ConversationStartResponse start(ConversationStartRequest request) {
         Customer customer = customers.findByEmail(request.customerEmail())
                 .orElseGet(() -> customers.save(new Customer(request.customerName(), request.customerEmail())));
 
-        return conversations
-                .findFirstByCustomerIdAndStatusInOrderByUpdatedAtDesc(customer.getId(), ACTIVE)
-                .map(existing -> {
-                    messages.save(new Message(existing, SenderType.CUSTOMER, request.initialMessage()));
-                    return ConversationResponse.from(existing);
-                })
-                .orElseGet(() -> {
-                    Agent assigned = pickLeastLoadedOnlineAgent(); 
-                    ConversationStatus status =
-                            assigned == null ? ConversationStatus.PENDING : ConversationStatus.OPEN;
-                    if (assigned != null) {
-                        occupy(assigned);
-                    }
-                    Conversation created = conversations.save(new Conversation(customer, assigned, status));
-                    messages.save(new Message(created, SenderType.CUSTOMER, request.initialMessage()));
-                    return ConversationResponse.from(created);
-                });
+        Optional<Conversation> existing = conversations
+                .findFirstByCustomerIdAndStatusInOrderByUpdatedAtDesc(customer.getId(), ACTIVE);
+        if (existing.isPresent()) {
+            Conversation conv = existing.get();
+            messages.save(new Message(conv, SenderType.CUSTOMER, request.initialMessage()));
+            Agent current = conv.getAgent();
+            return new ConversationStartResponse(
+                    ConversationResponse.from(conv),
+                    new AssignmentInfo("CONTINUED", current == null ? null : current.getName()));
+        }
+
+        Optional<Agent> assigned = agentQueue.nextOnline()
+                .flatMap(agents::findById)
+                .or(() -> agentQueue.nextBusy().flatMap(agents::findById));
+        Agent agent = null;
+        String tier = "QUEUED";
+        if (assigned.isPresent()) {
+            agent = assigned.get();
+            tier = agent.getStatus() == AgentStatus.ONLINE ? "ONLINE" : "BUSY";
+            occupy(agent);
+        }
+        ConversationStatus status = agent == null ? ConversationStatus.PENDING : ConversationStatus.OPEN;
+        Conversation created = conversations.save(new Conversation(customer, agent, status));
+        messages.save(new Message(created, SenderType.CUSTOMER, request.initialMessage()));
+        return new ConversationStartResponse(
+                ConversationResponse.from(created),
+                new AssignmentInfo(tier, agent == null ? null : agent.getName()));
     }
 
     @Transactional(readOnly = true)
@@ -99,20 +115,27 @@ public class ConversationService {
     }
 
     /**
-     * Assigns waiting conversations (oldest first) to the least-loaded
-     * online agent. Called when agent availability increases.
+     * Assigns waiting conversations (oldest first) in fair rotation: online
+     * agents first, then the busy rotation so loaded agents share evenly.
      */
     @Transactional
     public void assignPending() {
-        for (Conversation pending
-                : conversations.findByStatusOrderByCreatedAtAsc(ConversationStatus.PENDING)) {
-            Agent agent = pickLeastLoadedOnlineAgent();
-            if (agent == null) {
+        while (true) {
+            List<Conversation> waiting =
+                    conversations.findByStatusOrderByCreatedAtAsc(ConversationStatus.PENDING);
+            if (waiting.isEmpty()) {
                 return;
             }
-            pending.setAgent(agent);
+            Optional<Agent> assigned = agentQueue.nextOnline()
+                    .flatMap(agents::findById)
+                    .or(() -> agentQueue.nextBusy().flatMap(agents::findById));
+            if (assigned.isEmpty()) {
+                return;
+            }
+            Conversation pending = waiting.get(0);
+            pending.setAgent(assigned.get());
             pending.setStatus(ConversationStatus.OPEN);
-            occupy(agent);
+            occupy(assigned.get());
             events.publishEvent(new ConversationUpdatedEvent(pending.getId()));
         }
     }
@@ -164,13 +187,14 @@ public class ConversationService {
     }
 
     /**
-     * An agent holding an open conversation is busy: flip ONLINE agents to
-     * BUSY so auto-assign skips them. Manual claims still allowed.
+     * An agent holding an open conversation is busy: ONLINE agents flip to
+     * BUSY and move to the busy queue end. Manual claims stay allowed.
      */
     private void occupy(Agent agent) {
         if (agent.getStatus() == AgentStatus.ONLINE) {
             agent.setStatus(AgentStatus.BUSY);
         }
+        agentQueue.markBusy(agent.getId());
     }
 
     /**
@@ -181,20 +205,7 @@ public class ConversationService {
                 && agent.getStatus() == AgentStatus.BUSY
                 && conversations.countByAgentIdAndStatus(agent.getId(), ConversationStatus.OPEN) == 0) {
             agent.setStatus(AgentStatus.ONLINE);
+            agentQueue.markOnline(agent.getId());
         }
-    }
-
-    private Agent pickLeastLoadedOnlineAgent() {
-        List<Agent> online = agents.findByStatus(AgentStatus.ONLINE);
-        Agent best = null;
-        long bestLoad = Long.MAX_VALUE;
-        for (Agent agent : online) {
-            long load = conversations.countByAgentIdAndStatus(agent.getId(), ConversationStatus.OPEN);
-            if (load < bestLoad) {
-                bestLoad = load;
-                best = agent;
-            }
-        }
-        return best;
     }
 }

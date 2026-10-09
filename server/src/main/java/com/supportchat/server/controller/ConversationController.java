@@ -2,6 +2,7 @@ package com.supportchat.server.controller;
 
 import com.supportchat.server.dto.ConversationResponse;
 import com.supportchat.server.dto.ConversationStartRequest;
+import com.supportchat.server.dto.ConversationStartResponse;
 import com.supportchat.server.service.ConversationService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -26,7 +27,7 @@ public class ConversationController {
     }
 
     @PostMapping("/start")
-    public ResponseEntity<ConversationResponse> start(@Valid @RequestBody ConversationStartRequest request) {
+    public ResponseEntity<ConversationStartResponse> start(@Valid @RequestBody ConversationStartRequest request) {
         return ResponseEntity.ok(conversationService.start(request));
     }
 

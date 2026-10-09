@@ -14,4 +14,6 @@ public interface AgentRepository extends JpaRepository<Agent, UUID> {
     boolean existsByEmail(String email);
 
     List<Agent> findByStatus(AgentStatus status);
+
+    List<Agent> findAllByOrderByCreatedAtAsc();
 }

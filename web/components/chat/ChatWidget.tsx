@@ -20,8 +20,11 @@ function loadStored(): Customer | null {
   }
 }
 
-function fmt(iso: string) {
-  return new Date(iso).toLocaleString(undefined, {
+function delay(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function fmt(iso: string) {  return new Date(iso).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -38,6 +41,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
   const [conv, setConv] = useState<Conversation | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [phaseMsg, setPhaseMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -110,11 +114,28 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
       return;
     }
     setBusy(true);
+    setPhaseMsg(null);
     try {
-      const created = await api.startConversation(name.trim(), email.trim(), firstMessage.trim());
+      const res = await api.startConversation(name.trim(), email.trim(), firstMessage.trim());
+      const created = res.conversation;
       const c: Customer = { id: created.customerId, name: name.trim(), email: email.trim() };
       remember(c);
       const list = await refreshList(c.id);
+      const a = res.assignment;
+      if (a.tier === "CONTINUED") {
+        setPhaseMsg("Continuing your previous conversation...");
+      } else {
+        setPhaseMsg("Finding agent...");
+        await delay(650);
+        if (a.tier === "ONLINE") {
+          setPhaseMsg(`Found ${a.agentName ?? "an agent"}, assigning...`);
+        } else if (a.tier === "BUSY") {
+          setPhaseMsg(`No free agents - assigning to next available (${a.agentName ?? "agent"})...`);
+        } else {
+          setPhaseMsg("All agents are busy - you're in the queue...");
+        }
+        await delay(850);
+      }
       setConv(list.find((x) => x.id === created.id) ?? created);
       setDraft("");
       setView("chat");
@@ -122,6 +143,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
       setError(e instanceof Error ? e.message : "Could not start chat.");
     } finally {
       setBusy(false);
+      setPhaseMsg(null);
     }
   }
 
@@ -202,6 +224,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
             />
           </label>
           {shownError && <p className="text-sm text-destructive">{shownError}</p>}
+          {phaseMsg && <p className="text-sm text-muted-foreground">{phaseMsg}</p>}
           <Button onClick={() => start(draft)} disabled={busy}>
             {busy ? "Starting..." : "Start chat"}
           </Button>
@@ -254,6 +277,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
             placeholder="Describe your issue..."
           />
           {shownError && <p className="text-sm text-destructive">{shownError}</p>}
+          {phaseMsg && <p className="text-sm text-muted-foreground">{phaseMsg}</p>}
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setView("history")}>
               Back

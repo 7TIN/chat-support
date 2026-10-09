@@ -22,16 +22,19 @@ public class AgentService {
     private final AgentRepository agents;
     private final ConversationRepository conversations;
     private final ConversationService conversationService;
+    private final AgentQueueService agentQueue;
     private final ApplicationEventPublisher events;
 
     public AgentService(
             AgentRepository agents,
             ConversationRepository conversations,
             ConversationService conversationService,
+            AgentQueueService agentQueue,
             ApplicationEventPublisher events) {
         this.agents = agents;
         this.conversations = conversations;
         this.conversationService = conversationService;
+        this.agentQueue = agentQueue;
         this.events = events;
     }
 
@@ -42,6 +45,7 @@ public class AgentService {
         }
         AgentResponse created =
                 AgentResponse.from(agents.save(new Agent(request.name(), request.email())));
+        agentQueue.markOnline(created.id());
         conversationService.assignPending();
         return created;
     }
@@ -74,7 +78,12 @@ public class AgentService {
         agent.setStatus(status);
         AgentResponse response = AgentResponse.from(agent);
         if (status == AgentStatus.ONLINE) {
+            agentQueue.markOnline(id);
             conversationService.assignPending();
+        } else if (status == AgentStatus.BUSY) {
+            agentQueue.markBusy(id);
+        } else {
+            agentQueue.markOffline(id);
         }
         return response;
     }
@@ -90,6 +99,7 @@ public class AgentService {
             events.publishEvent(new ConversationUpdatedEvent(conversation.getId()));
         }
         agents.delete(agent);
+        agentQueue.remove(id);
         conversationService.assignPending();
     }
 
