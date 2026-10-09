@@ -5,6 +5,7 @@ import com.supportchat.server.dto.CustomerCreateRequest;
 import com.supportchat.server.dto.CustomerResponse;
 import com.supportchat.server.repository.CustomerRepository;
 import jakarta.persistence.EntityNotFoundException;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +33,11 @@ public class CustomerService {
         Customer customer = customers.findByEmail(request.email())
                 .orElseGet(() -> customers.save(new Customer(request.name(), request.email())));
         return CustomerResponse.from(customer);
+    }
+
+    @Transactional(readOnly = true)
+    public List<CustomerResponse> findAll() {
+        return customers.findAll().stream().map(CustomerResponse::from).toList();
     }
 
     @Transactional(readOnly = true)

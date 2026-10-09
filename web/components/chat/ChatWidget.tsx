@@ -42,6 +42,7 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [phaseMsg, setPhaseMsg] = useState<string | null>(null);
+  const [historyFrom, setHistoryFrom] = useState<{ view: "chat" | "newChat"; convId: string | null }>({ view: "newChat", convId: null });
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -78,7 +79,8 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
           setView("chat");
         } else {
           setConv(null);
-          setView("history");
+          setDraft("");
+          setView("newChat");
         }
       })
       .catch(() => {
@@ -147,6 +149,25 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
     }
   }
 
+  function toggleHistory() {
+    if (view !== "history") {
+      setHistoryFrom({ view: view === "chat" ? "chat" : "newChat", convId: conv?.id ?? null });
+      setView("history");
+      return;
+    }
+    const back = convs.find((x) => x.id === historyFrom.convId) ?? activeConv;
+    if (historyFrom.view === "chat" && back) {
+      setConv(back);
+      setView("chat");
+    } else if (activeConv) {
+      setConv(activeConv);
+      setView("chat");
+    } else {
+      setConv(null);
+      setView("newChat");
+    }
+  }
+
   async function openHistory(id: string) {
     setError(null);
     try {
@@ -178,11 +199,11 @@ export function ChatWidget({ open, onClose }: { open: boolean; onClose: () => vo
           Support chat
         </div>
         <div className="flex items-center gap-1">
-          {customer && view !== "history" && (
+          {customer && (
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => setView("history")}
+              onClick={toggleHistory}
               aria-label="Conversation history"
             >
               <History />

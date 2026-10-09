@@ -4,6 +4,7 @@ import com.supportchat.server.dto.CustomerCreateRequest;
 import com.supportchat.server.dto.CustomerResponse;
 import com.supportchat.server.service.CustomerService;
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +39,11 @@ public class CustomerController {
     @GetMapping("/{id}")
     public ResponseEntity<CustomerResponse> findById(@PathVariable UUID id) {
         return ResponseEntity.ok(customerService.findById(id));
+    }
+
+    @GetMapping
+    public ResponseEntity<List<CustomerResponse>> findAll() {
+        return ResponseEntity.ok(customerService.findAll());
     }
 
     @GetMapping("/by-email")

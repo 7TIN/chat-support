@@ -83,9 +83,25 @@ public class AgentService {
         } else if (status == AgentStatus.BUSY) {
             agentQueue.markBusy(id);
         } else {
+            requeueOpenConversations(id);
             agentQueue.markOffline(id);
         }
         return response;
+    }
+
+    /**
+     * An agent going offline releases its open chats back to the waiting
+     * queue (new or ongoing alike) so another agent can take them. Closed
+     * chats are untouched.
+     */
+    private void requeueOpenConversations(UUID agentId) {
+        for (Conversation conversation : conversations.findByAgentIdOrderByUpdatedAtDesc(agentId)) {
+            if (conversation.getStatus() == ConversationStatus.OPEN) {
+                conversation.setAgent(null);
+                conversation.setStatus(ConversationStatus.PENDING);
+                events.publishEvent(new ConversationUpdatedEvent(conversation.getId()));
+            }
+        }
     }
 
     @Transactional

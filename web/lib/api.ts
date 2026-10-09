@@ -92,6 +92,9 @@ export const api = {
       json<Conversation[]>
     );
   },
+  allConversations() {
+    return fetch(`${BASE}/api/conversations`).then(json<Conversation[]>);
+  },
   agentByEmail(email: string) {
     return fetch(`${BASE}/api/agents/by-email?email=${encodeURIComponent(email)}`).then(
       json<Agent>
@@ -116,6 +119,9 @@ export const api = {
     return fetch(`${BASE}/api/conversations/customer/${customerId}`).then(
       json<Conversation[]>
     );
+  },
+  customers() {
+    return fetch(`${BASE}/api/customers`).then(json<Customer[]>);
   },
   pending() {
     return fetch(`${BASE}/api/conversations/unassigned`).then(json<Conversation[]>);
